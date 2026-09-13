@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZA Tax Ladder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">South African personal income tax &middot; unofficial</p>
+    <h1 class="title">Tax&nbsp;Ladder</h1>
+    <p class="lede">What your assessment comes to, which bracket you are standing in, and exactly what it would take to step down one.</p>
+  </header>
+
+  <main class="layout">
+
+    <form class="inputs" id="tax-form" autocomplete="off" novalidate>
+      <div class="inputs-head">
+        <h2>Your figures</h2>
+        <button type="button" class="ghost-btn" id="reset-btn">Reset</button>
+      </div>
+      <p class="privacy">Everything you type stays in this browser. Nothing is sent anywhere.</p>
+
+      <fieldset class="group">
+        <legend>Year of assessment</legend>
+        <div class="field">
+          <label for="tax-year">Tax year</label>
+          <select id="tax-year"></select>
+          <p class="hint" id="year-note"></p>
+        </div>
+        <div class="field">
+          <label for="age-band">Your age on the last day of the year</label>
+          <select id="age-band">
+            <option value="under65">Under 65</option>
+            <option value="age65to74">65 to 74</option>
+            <option value="age75plus">75 or older</option>
+          </select>
+        </div>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Income</legend>
+        <div class="field">
+          <div class="field-top">
+            <label for="salary" id="salary-label">Monthly salary</label>
+            <div class="segmented" role="group" aria-label="Enter salary as">
+              <input type="radio" name="period" id="period-monthly" value="monthly" checked>
+              <label for="period-monthly">Monthly</label>
+              <input type="radio" name="period" id="period-annual" value="annual">
+              <label for="period-annual">Annual</label>
+            </div>
+          </div>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="salary"></div>
+          <p class="hint">Cash salary plus any allowances, before deductions.</p>
+        </div>
+        <div class="field">
+          <label for="bonus">Bonus or 13th cheque <span class="tag">a year</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="bonus"></div>
+        </div>
+        <div class="field">
+          <label for="other-income">Other taxable income <span class="tag">a year</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="other-income"></div>
+          <p class="hint">Rental, freelance or interest above the exempt amount. Not remuneration, so it does not raise your retirement allowance.</p>
+        </div>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Deductions</legend>
+        <div class="field">
+          <label for="retirement">Retirement fund contributions <span class="tag">a year</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="retirement"></div>
+          <p class="hint">Pension, provident and retirement annuity combined, including any employer contribution taxed as a fringe benefit.</p>
+          <label class="check"><input type="checkbox" id="retirement-from-pay" checked> <span>Comes off my payslip</span></label>
+        </div>
+        <div class="field">
+          <label for="donations">Section 18A donations <span class="tag">a year</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="donations"></div>
+          <p class="hint">Only donations with a section 18A certificate count, and only up to 10% of taxable income.</p>
+        </div>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Medical</legend>
+        <label class="check"><input type="checkbox" id="on-scheme"> <span>I belong to a medical scheme</span></label>
+        <div class="conditional" id="medical-fields" hidden>
+          <div class="field">
+            <label for="medical-members">People on the scheme <span class="tag">including you</span></label>
+            <input type="text" inputmode="numeric" id="medical-members" class="narrow">
+          </div>
+          <div class="field">
+            <label for="medical-contributions">Contributions paid to the scheme <span class="tag">a year</span></label>
+            <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="medical-contributions"></div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="out-of-pocket">Medical costs the scheme did not pay back <span class="tag">a year</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="out-of-pocket"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="disability"> <span>A disability is registered with SARS</span></label>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Already paid over</legend>
+        <div class="field">
+          <label for="paye-paid">PAYE deducted <span class="tag">IRP5 code 4102</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="paye-paid"></div>
+          <p class="hint">The single number that decides whether you get a refund or owe SARS.</p>
+        </div>
+        <div class="field">
+          <label for="provisional-paid">Provisional tax paid <span class="tag">a year</span></label>
+          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="provisional-paid"></div>
+        </div>
+      </fieldset>
+    </form>
+
+    <div class="results">
+
+      <section class="verdict" id="verdict" aria-live="polite">
+        <p class="sample-chip" id="sample-chip">Example figures &mdash; type over them</p>
+        <p class="verdict-label" id="verdict-label">Estimated refund due</p>
+        <p class="verdict-figure" id="verdict-figure">R0</p>
+        <p class="verdict-note" id="verdict-note"></p>
+      </section>
+
+      <ul class="tiles">
+        <li><span class="tile-label">Taxable income</span><span class="tile-figure" id="tile-taxable">R0</span></li>
+        <li><span class="tile-label">Marginal rate</span><span class="tile-figure" id="tile-marginal">0%</span></li>
+        <li><span class="tile-label">Effective rate</span><span class="tile-figure" id="tile-effective">0%</span></li>
+        <li><span class="tile-label">Net pay a month</span><span class="tile-figure" id="tile-net">R0</span></li>
+      </ul>
+
+      <section class="block">
+        <h2>Where your tax actually comes from</h2>
+        <p class="prose">Each rung is taxed at its own rate, and only the income sitting inside it. Moving up a bracket re-rates the slice above that rung&rsquo;s floor &mdash; never everything you earn.</p>
+        <ol class="ladder" id="ladder"></ol>
+      </section>
+
+      <section class="block drop" id="drop">
+        <h2>Dropping a bracket</h2>
+        <div id="drop-body"></div>
+      </section>
+
+      <section class="block">
+        <h2>The assessment, line by line</h2>
+        <dl class="statement" id="statement"></dl>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="colophon">
+    <p><strong>This is an estimate, not an assessment.</strong> It covers the ordinary salaried case: salary, a bonus, retirement contributions, medical credits, section 18A donations and PAYE already paid. It does not handle travel allowances or company cars, share incentives, lump sums from a fund, capital gains, foreign income or the section 10(1)(o)(ii) exemption, or the interest and dividend exemptions &mdash; enter other income already net of those. Retirement contributions above the annual limit are shown as disallowed; SARS carries them forward to a later year, which this does not model.</p>
+    <p>Rates are the published SARS tables in <code>tax-tables.js</code>, covering the 2025, 2026 and 2027 years of assessment. Check them against <span class="nowrap">sars.gov.za</span> before relying on a number, and see your tax practitioner for anything that matters.</p>
+  </footer>
+
+</div>
+<script src="tax-tables.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
