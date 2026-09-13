@@ -57,7 +57,14 @@
             </div>
           </div>
           <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="salary"></div>
-          <p class="hint">Cash salary plus any allowances, before deductions.</p>
+          <p class="hint" id="salary-hint">Cash salary plus any allowances, before deductions.</p>
+          <label class="check"><input type="checkbox" id="salary-varies"> <span>My salary changed, or will change, during this tax year</span></label>
+          <div class="conditional" id="salary-changes" hidden>
+            <div class="change-rows" id="change-rows"></div>
+            <button type="button" class="ghost-btn" id="add-change">+ Add another change</button>
+            <p class="hint" id="schedule-note"></p>
+            <p class="hint">Started the job part-way through the year? Set the starting salary to 0 and add your first month as a change.</p>
+          </div>
         </div>
         <div class="field">
           <label for="bonus">Bonus or 13th cheque <span class="tag">a year</span></label>
@@ -76,7 +83,7 @@
           <label for="retirement">Retirement fund contributions <span class="tag">a year</span></label>
           <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="retirement"></div>
           <p class="hint">Pension, provident and retirement annuity combined, including any employer contribution taxed as a fringe benefit.</p>
-          <label class="check"><input type="checkbox" id="retirement-from-pay" checked> <span>Comes off my payslip</span></label>
+          <label class="check"><input type="checkbox" id="retirement-from-pay" checked> <span>Comes off my payslip, so payroll allows for it</span></label>
         </div>
         <div class="field">
           <label for="donations">Section 18A donations <span class="tag">a year</span></label>
@@ -97,6 +104,10 @@
             <label for="medical-contributions">Contributions paid to the scheme <span class="tag">a year</span></label>
             <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="medical-contributions"></div>
           </div>
+          <div class="field">
+            <label class="check"><input type="checkbox" id="medical-through-payroll" checked> <span>Paid through my payslip</span></label>
+            <p class="hint">If you pay the scheme yourself, payroll usually leaves the monthly credit out and it comes back to you on assessment.</p>
+          </div>
         </div>
         <div class="field">
           <label for="out-of-pocket">Medical costs the scheme did not pay back <span class="tag">a year</span></label>
@@ -108,9 +119,42 @@
       <fieldset class="group">
         <legend>Already paid over</legend>
         <div class="field">
-          <label for="paye-paid">PAYE deducted <span class="tag">IRP5 code 4102</span></label>
-          <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="paye-paid"></div>
-          <p class="hint">The single number that decides whether you get a refund or owe SARS.</p>
+          <div class="field-top">
+            <label for="paye-paid" id="paye-label">PAYE deducted <span class="tag">IRP5 code 4102</span></label>
+            <div class="segmented" role="group" aria-label="Where the PAYE figure comes from">
+              <input type="radio" name="paye-mode" id="paye-mode-irp5" value="irp5" checked>
+              <label for="paye-mode-irp5">From my IRP5</label>
+              <input type="radio" name="paye-mode" id="paye-mode-estimate" value="estimate">
+              <label for="paye-mode-estimate">Estimate it</label>
+            </div>
+          </div>
+          <div class="conditional" id="paye-irp5-fields">
+            <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="paye-paid"></div>
+            <p class="hint">The single number that decides whether you get a refund or owe SARS. No IRP5 yet because the year is still running? Switch to an estimate.</p>
+          </div>
+          <div class="conditional" id="paye-estimate-fields" hidden>
+            <div class="field">
+              <label for="paye-so-far">Deducted so far this year <span class="tag">tax year to date on your payslip</span></label>
+              <div class="split">
+                <div class="money"><span class="rand" aria-hidden="true">R</span><input type="text" inputmode="decimal" id="paye-so-far"></div>
+                <select id="paye-so-far-month" aria-label="Up to and including which month"></select>
+              </div>
+              <p class="hint">The months after that are estimated from your salary. Leave it at nothing yet to estimate the whole year.</p>
+            </div>
+            <div class="field">
+              <label for="paye-method">How your payroll works tax out</label>
+              <select id="paye-method">
+                <option value="cumulative">Cumulative &mdash; averages the year to date</option>
+                <option value="annualised">Annualised &mdash; each month on its own</option>
+              </select>
+              <p class="hint">Both are allowed by SARS. The big payroll systems default to averaging, which corrects itself by February, so an increase produces no refund on its own. Annualising each month over-deducts when an increase crosses a bracket line &mdash; that is where the &ldquo;raise, then refund&rdquo; experience comes from. Ask payroll if you are not sure.</p>
+            </div>
+            <div class="field" id="bonus-month-field" hidden>
+              <label for="bonus-month">Bonus paid in</label>
+              <select id="bonus-month"></select>
+            </div>
+            <p class="hint estimate-note" id="paye-estimate-note"></p>
+          </div>
         </div>
         <div class="field">
           <label for="provisional-paid">Provisional tax paid <span class="tag">a year</span></label>
@@ -132,7 +176,7 @@
         <li><span class="tile-label">Taxable income</span><span class="tile-figure" id="tile-taxable">R0</span></li>
         <li><span class="tile-label">Marginal rate</span><span class="tile-figure" id="tile-marginal">0%</span></li>
         <li><span class="tile-label">Effective rate</span><span class="tile-figure" id="tile-effective">0%</span></li>
-        <li><span class="tile-label">Net pay a month</span><span class="tile-figure" id="tile-net">R0</span></li>
+        <li><span class="tile-label" id="tile-net-label">Net pay a month</span><span class="tile-figure" id="tile-net">R0</span></li>
       </ul>
 
       <section class="block">
@@ -149,6 +193,14 @@
       <section class="block">
         <h2>The assessment, line by line</h2>
         <dl class="statement" id="statement"></dl>
+      </section>
+
+      <section class="block" id="months-block" hidden>
+        <h2>Month by month</h2>
+        <p class="prose" id="months-intro"></p>
+        <div class="table-wrap">
+          <table class="months" id="months-table"></table>
+        </div>
       </section>
 
     </div>

@@ -40,26 +40,56 @@
     return (rate * 100).toFixed(d).replace(/\.0$/, '') + '%';
   }
 
+  function sum(list, pick) {
+    return list.reduce(function (a, x) { return a + (pick ? pick(x) : x); }, 0);
+  }
+
+  function month(taxYear, index, withYear) { return ZATax.monthLabel(taxYear, index, withYear); }
+
   /* --- Form plumbing ------------------------------------------------------ */
 
   var el = {};
-  ['tax-year', 'year-note', 'age-band', 'salary', 'salary-label', 'bonus', 'other-income',
+  ['tax-year', 'year-note', 'age-band', 'salary', 'salary-label', 'salary-hint', 'bonus', 'other-income',
+   'salary-varies', 'salary-changes', 'change-rows', 'add-change', 'schedule-note',
    'retirement', 'retirement-from-pay', 'donations', 'on-scheme', 'medical-fields',
-   'medical-members', 'medical-contributions', 'out-of-pocket', 'disability', 'paye-paid',
-   'provisional-paid', 'period-monthly', 'period-annual', 'reset-btn', 'sample-chip',
+   'medical-members', 'medical-contributions', 'medical-through-payroll', 'out-of-pocket', 'disability',
+   'paye-label', 'paye-mode-irp5', 'paye-mode-estimate', 'paye-irp5-fields', 'paye-estimate-fields',
+   'paye-paid', 'paye-so-far', 'paye-so-far-month', 'paye-method', 'bonus-month-field', 'bonus-month',
+   'paye-estimate-note', 'provisional-paid', 'period-monthly', 'period-annual', 'reset-btn', 'sample-chip',
    'verdict', 'verdict-label', 'verdict-figure', 'verdict-note', 'tile-taxable',
-   'tile-marginal', 'tile-effective', 'tile-net', 'ladder', 'drop-body', 'statement',
-   'tax-form'].forEach(function (id) { el[id] = document.getElementById(id); });
+   'tile-marginal', 'tile-effective', 'tile-net', 'tile-net-label', 'ladder', 'drop-body', 'statement',
+   'months-block', 'months-intro', 'months-table', 'tax-form'
+  ].forEach(function (id) { el[id] = document.getElementById(id); });
 
-  var EXAMPLE = {
-    taxYear: '2026', ageBand: 'under65', period: 'monthly',
-    salary: 46500, bonus: 0, otherIncome: 0,
-    retirement: 33000, retirementFromPay: false, donations: 0,
-    onMedicalScheme: true, medicalMembers: 2, medicalContributions: 36000,
+  var DEFAULTS = {
+    taxYear: T.DEFAULT_YEAR, ageBand: 'under65', period: 'monthly',
+    salary: 0, salaryVaries: false, salaryChanges: [],
+    bonus: 0, bonusMonth: 9, otherIncome: 0,
+    retirement: 0, retirementFromPay: true, donations: 0,
+    onMedicalScheme: false, medicalMembers: 0, medicalContributions: 0, medicalThroughPayroll: true,
     outOfPocket: 0, disability: false,
-    payePaid: 111776, provisionalPaid: 0,
-    isExample: true
+    payeMode: 'irp5', payePaid: 0, payeSoFar: 0, payeSoFarMonth: -1, payeMethod: 'cumulative',
+    provisionalPaid: 0,
+    isExample: false
   };
+
+  var EXAMPLE = withDefaults({
+    taxYear: '2026', salary: 46500,
+    retirement: 33000, retirementFromPay: false,
+    onMedicalScheme: true, medicalMembers: 2, medicalContributions: 36000,
+    payePaid: 111776,
+    isExample: true
+  });
+
+  function withDefaults(s) {
+    var out = {};
+    for (var k in DEFAULTS) out[k] = DEFAULTS[k];
+    for (var j in (s || {})) if (s[j] !== undefined) out[j] = s[j];
+    out.salaryChanges = (out.salaryChanges || []).map(function (c) {
+      return { month: Number(c.month) || 0, amount: Number(c.amount) || 0 };
+    });
+    return out;
+  }
 
   function populateYears() {
     var keys = Object.keys(T.YEARS).sort().reverse();
@@ -68,12 +98,53 @@
     }).join('');
   }
 
+  function monthOptions(taxYear, noneLabel) {
+    var out = noneLabel ? '<option value="-1">' + noneLabel + '</option>' : '';
+    for (var i = 0; i < 12; i++) {
+      out += '<option value="' + i + '">' + month(taxYear, i, true) + '</option>';
+    }
+    return out;
+  }
+
+  function fillMonthSelect(select, taxYear, value, noneLabel) {
+    select.innerHTML = monthOptions(taxYear, noneLabel);
+    select.value = String(value);
+  }
+
+  /* The change rows are rebuilt only when their number or the tax year
+     changes, never while someone is typing in one. */
+  function renderChangeRows(s) {
+    el['change-rows'].innerHTML = s.salaryChanges.map(function (ch, i) {
+      return '<div class="change-row">' +
+        '<span class="from">From</span>' +
+        '<select id="change-month-' + i + '" class="change-month" aria-label="Month the change takes effect">' +
+          monthOptions(s.taxYear) + '</select>' +
+        '<div class="money"><span class="rand" aria-hidden="true">R</span>' +
+          '<input type="text" inputmode="decimal" id="change-amount-' + i + '" class="change-amount" ' +
+          'aria-label="Salary from that month" value="' + plainRand(ch.amount) + '"></div>' +
+        '<button type="button" class="icon-btn change-remove" data-index="' + i + '" aria-label="Remove this change">&times;</button>' +
+      '</div>';
+    }).join('');
+    s.salaryChanges.forEach(function (ch, i) {
+      document.getElementById('change-month-' + i).value = String(ch.month);
+    });
+  }
+
+  var renderedYear = null;
+  function syncMonthControls(s) {
+    renderChangeRows(s);
+    fillMonthSelect(el['paye-so-far-month'], s.taxYear, s.payeSoFarMonth, 'Nothing yet');
+    fillMonthSelect(el['bonus-month'], s.taxYear, s.bonusMonth);
+    renderedYear = s.taxYear;
+  }
+
   function writeForm(s) {
     el['tax-year'].value = s.taxYear;
     el['age-band'].value = s.ageBand;
     el['period-monthly'].checked = s.period === 'monthly';
     el['period-annual'].checked = s.period !== 'monthly';
-    el.salary.value = plainRand(s.period === 'monthly' ? s.salary : s.salary);
+    el.salary.value = plainRand(s.salary);
+    el['salary-varies'].checked = !!s.salaryVaries;
     el.bonus.value = plainRand(s.bonus);
     el['other-income'].value = plainRand(s.otherIncome);
     el.retirement.value = plainRand(s.retirement);
@@ -82,20 +153,38 @@
     el['on-scheme'].checked = !!s.onMedicalScheme;
     el['medical-members'].value = String(s.medicalMembers || 0);
     el['medical-contributions'].value = plainRand(s.medicalContributions);
+    el['medical-through-payroll'].checked = !!s.medicalThroughPayroll;
     el['out-of-pocket'].value = plainRand(s.outOfPocket);
     el.disability.checked = !!s.disability;
+    el['paye-mode-irp5'].checked = s.payeMode !== 'estimate';
+    el['paye-mode-estimate'].checked = s.payeMode === 'estimate';
     el['paye-paid'].value = plainRand(s.payePaid);
+    el['paye-so-far'].value = plainRand(s.payeSoFar);
+    el['paye-method'].value = s.payeMethod;
     el['provisional-paid'].value = plainRand(s.provisionalPaid);
+    syncMonthControls(s);
+  }
+
+  function readChanges() {
+    var rows = el['change-rows'].querySelectorAll('.change-row');
+    return Array.prototype.map.call(rows, function (row) {
+      return {
+        month: parseInt(row.querySelector('.change-month').value, 10) || 0,
+        amount: parseRand(row.querySelector('.change-amount').value)
+      };
+    });
   }
 
   function readForm() {
-    var period = el['period-monthly'].checked ? 'monthly' : 'annual';
     return {
       taxYear: el['tax-year'].value,
       ageBand: el['age-band'].value,
-      period: period,
+      period: el['period-monthly'].checked ? 'monthly' : 'annual',
       salary: parseRand(el.salary.value),
+      salaryVaries: el['salary-varies'].checked,
+      salaryChanges: readChanges(),
       bonus: parseRand(el.bonus.value),
+      bonusMonth: parseInt(el['bonus-month'].value, 10),
       otherIncome: parseRand(el['other-income'].value),
       retirement: parseRand(el.retirement.value),
       retirementFromPay: el['retirement-from-pay'].checked,
@@ -103,19 +192,16 @@
       onMedicalScheme: el['on-scheme'].checked,
       medicalMembers: Math.max(0, Math.round(parseRand(el['medical-members'].value))),
       medicalContributions: parseRand(el['medical-contributions'].value),
+      medicalThroughPayroll: el['medical-through-payroll'].checked,
       outOfPocket: parseRand(el['out-of-pocket'].value),
       disability: el.disability.checked,
+      payeMode: el['paye-mode-estimate'].checked ? 'estimate' : 'irp5',
       payePaid: parseRand(el['paye-paid'].value),
+      payeSoFar: parseRand(el['paye-so-far'].value),
+      payeSoFarMonth: parseInt(el['paye-so-far-month'].value, 10),
+      payeMethod: el['paye-method'].value,
       provisionalPaid: parseRand(el['provisional-paid'].value)
     };
-  }
-
-  /* The calculator works in annual rands; the form may be in monthly ones. */
-  function toAnnual(s) {
-    var out = {};
-    for (var k in s) out[k] = s[k];
-    out.salary = s.period === 'monthly' ? s.salary * 12 : s.salary;
-    return out;
   }
 
   function save(s) {
@@ -128,44 +214,87 @@
       if (!raw) return null;
       var s = JSON.parse(raw);
       if (!s || !T.YEARS[s.taxYear]) return null;
-      return s;
+      return withDefaults(s);
     } catch (e) { return null; }
+  }
+
+  /* --- The year's salary, month by month ---------------------------------- */
+
+  function buildSchedule(form) {
+    var unit = form.period === 'monthly' ? 1 : 12;
+    var changes = form.salaryVaries
+      ? form.salaryChanges.map(function (c) { return { month: c.month, amount: c.amount / unit }; })
+      : [];
+    return { unit: unit, months: ZATax.salarySchedule(form.salary / unit, changes) };
+  }
+
+  function scheduleNote(schedule, taxYear) {
+    var segs = [];
+    schedule.months.forEach(function (rate, i) {
+      var last = segs[segs.length - 1];
+      if (last && last.rate === rate) last.to = i; else segs.push({ rate: rate, from: i, to: i });
+    });
+    var parts = segs.map(function (s) {
+      var span;
+      if (s.from === s.to) span = month(taxYear, s.from, true);
+      else if (s.from <= 9 && s.to >= 10) span = month(taxYear, s.from, true) + '–' + month(taxYear, s.to, true);
+      else span = month(taxYear, s.from, false) + '–' + month(taxYear, s.to, true);
+      return span + ' at ' + rand(s.rate * schedule.unit);
+    });
+    return parts.join(', ') + ': ' + rand(sum(schedule.months)) + ' for the year.';
   }
 
   /* --- Drawing ------------------------------------------------------------ */
 
-  function renderVerdict(r, isExample) {
+  function renderVerdict(r, form, estimate, otherEstimate, lastMonth) {
     var refund = r.balance >= 0;
     el.verdict.className = 'verdict ' + (Math.abs(r.balance) < 1 ? '' : (refund ? 'is-refund' : 'is-owing'));
-    el['sample-chip'].hidden = !isExample;
+    el['sample-chip'].hidden = !form.isExample;
+    var estimated = form.payeMode === 'estimate';
+    var note;
 
     if (r.alreadyPaid === 0) {
       el['verdict-label'].textContent = 'Tax for the year';
       el['verdict-figure'].textContent = rand(r.netTax);
-      el['verdict-note'].textContent = r.netTax === 0
+      note = r.netTax === 0
         ? 'Taxable income of ' + rand(r.taxableIncome) + ' is under the ' + rand(r.threshold) +
           ' threshold for your age, so no tax is due.'
-        : 'Fill in the PAYE from your IRP5 to see whether you are owed a refund or have to pay in.';
+        : 'Fill in the PAYE from your IRP5, or let the page estimate it, to see whether you are owed a refund or have to pay in.';
     } else if (Math.abs(r.balance) < 1) {
       el['verdict-label'].textContent = 'Square with SARS';
       el['verdict-figure'].textContent = rand(0);
-      el['verdict-note'].textContent = 'What you paid over matches the tax for the year almost exactly.';
+      note = 'What you paid over matches the tax for the year almost exactly.';
     } else if (refund) {
       el['verdict-label'].textContent = 'Estimated refund due to you';
       el['verdict-figure'].textContent = rand(r.balance);
-      el['verdict-note'].textContent = 'You paid ' + rand(r.alreadyPaid) + ' against a bill of ' +
-        rand(r.netTax) + '. SARS normally pays a refund into your bank account within a few working days of the assessment.';
+      note = 'You paid ' + rand(r.alreadyPaid) + ' against a bill of ' + rand(r.netTax) +
+        '. SARS normally pays a refund into your bank account within a few working days of the assessment.';
     } else {
       el['verdict-label'].textContent = 'Estimated amount you owe SARS';
       el['verdict-figure'].textContent = rand(-r.balance);
-      el['verdict-note'].textContent = 'Your bill is ' + rand(r.netTax) + ' but only ' +
-        rand(r.alreadyPaid) + ' has been paid over. The shortfall is payable on assessment.';
+      note = 'Your bill is ' + rand(r.netTax) + ' but only ' + rand(r.alreadyPaid) +
+        ' has been paid over. The shortfall is payable on assessment.';
     }
+
+    if (estimated && r.alreadyPaid > 0) {
+      var otherBalance = r.balance + (otherEstimate.total - estimate.total);
+      if (Math.abs(otherBalance - r.balance) >= 1) {
+        note += ' PAYE is estimated on the ' + estimate.method + ' method; if payroll uses the other one this becomes ' +
+          (otherBalance >= 0 ? 'a refund of ' + rand(otherBalance) : rand(-otherBalance) + ' owing') + '.';
+      } else {
+        note += ' PAYE is estimated, and comes out the same under either payroll method.';
+      }
+    }
+    el['verdict-note'].textContent = note;
 
     el['tile-taxable'].textContent = rand(r.taxableIncome);
     el['tile-marginal'].textContent = r.belowThreshold ? '0%' : pct(r.marginalRate, 0);
     el['tile-effective'].textContent = pct(r.effectiveRate);
-    el['tile-net'].textContent = rand(r.netPayMonthly);
+    el['tile-net'].textContent = rand(Math.max(0, lastMonth.net));
+    var changeMonths = form.salaryVaries ? form.salaryChanges.map(function (c) { return c.month; }) : [];
+    el['tile-net-label'].textContent = changeMonths.length
+      ? 'Net pay from ' + month(form.taxYear, Math.max.apply(null, changeMonths), false)
+      : 'Net pay a month';
   }
 
   function renderLadder(r) {
@@ -222,18 +351,17 @@
       : '27.5% of your ' + rand(Math.max(r.remuneration, r.incomeBeforeDeductions)) + ' of remuneration';
   }
 
-  function renderDrop(state, annual) {
+  function renderDrop(annual) {
     var d = ZATax.bracketDrop(annual);
     var r = d.current;
     var html = '';
 
     if (d.status === 'below-threshold') {
-      html = '<div class="drop-card">' +
+      el['drop-body'].innerHTML = '<div class="drop-card">' +
         '<p class="drop-verdict can">Nothing to drop &mdash; you are already under the tax threshold.</p>' +
         '<p class="drop-note">Taxable income of ' + rand(r.taxableIncome) + ' sits below the ' +
         rand(r.threshold) + ' threshold for your age band, so the rebates cancel your tax entirely. ' +
         'A retirement contribution would buy you no tax saving this year.</p></div>';
-      el['drop-body'].innerHTML = html;
       return;
     }
 
@@ -299,11 +427,10 @@
       '<dd>' + value + '</dd></div>';
   }
 
-  function renderStatement(r) {
+  function renderStatement(r, form, estimate, lastMonth) {
     var out = '';
     var hasOtherIncome = r.incomeBeforeDeductions > r.remuneration;
-    out += row('Salary, bonus and allowances', rand(r.remuneration),
-      hasOtherIncome ? '' : 'is-total');
+    out += row('Salary, bonus and allowances', rand(r.remuneration), hasOtherIncome ? '' : 'is-total');
     if (hasOtherIncome) {
       out += row('Other taxable income', rand(r.incomeBeforeDeductions - r.remuneration));
       out += row('Income', rand(r.incomeBeforeDeductions), 'is-total');
@@ -339,17 +466,74 @@
     }
     out += row('Tax for the year', rand(r.netTax), 'is-total');
 
-    if (r.payePaid > 0) out += row('Less PAYE already deducted', '-' + rand(r.payePaid), '', 'Code 4102 on your IRP5');
+    if (r.payePaid > 0) {
+      if (form.payeMode === 'estimate') {
+        var soFar = estimate.paidThroughMonth >= 0;
+        out += row('Less PAYE, estimated', '-' + rand(r.payePaid), '',
+          (soFar
+            ? rand(estimate.paidSoFar) + ' deducted to ' + month(form.taxYear, estimate.paidThroughMonth, true) +
+              ', plus ' + rand(estimate.estimatedRemaining) + ' estimated for the rest of the year'
+            : 'Estimated for the whole year') + ' on the ' + estimate.method + ' method');
+      } else {
+        out += row('Less PAYE already deducted', '-' + rand(r.payePaid), '', 'Code 4102 on your IRP5');
+      }
+    }
     if (r.provisionalPaid > 0) out += row('Less provisional tax paid', '-' + rand(r.provisionalPaid));
 
     var refund = r.balance >= 0;
     out += row(refund ? 'Refund due to you' : 'Payable to SARS',
       rand(Math.abs(r.balance)), 'is-total is-final ' + (refund ? 'refund' : 'owing'));
 
-    out += row('UIF off your payslip', rand(r.uifMonthly, 2) + ' a month', '',
+    out += row('UIF off your payslip', rand(lastMonth.uif, 2) + ' a month', '',
       '1% of remuneration, on a ' + rand(T.UIF.monthlyCeiling) + ' a month ceiling. Not income tax, and not part of the assessment above.');
 
     el.statement.innerHTML = out;
+  }
+
+  function renderMonths(form, estimate, schedule) {
+    var show = form.salaryVaries || form.payeMode === 'estimate';
+    el['months-block'].hidden = !show;
+    if (!show) return;
+
+    var estimating = form.payeMode === 'estimate';
+    var soFarUsed = estimating && estimate.paidThroughMonth >= 0;
+    var deductions = form.retirementFromPay && form.retirement > 0 ? 'PAYE, UIF and your retirement contribution' : 'PAYE and UIF';
+
+    var intro = 'What each payslip should look like, worked the way payroll does on the ' + estimate.method +
+      ' method: ' + deductions + ' off, leaving net pay.';
+    if (soFarUsed) {
+      intro += ' Greyed months are behind you — the model’s figure is shown so you can check it against ' +
+        'your payslips, but the total uses the ' + rand(estimate.paidSoFar) + ' you actually had deducted.';
+    }
+    if (!estimating) {
+      intro += ' The assessment above uses the PAYE figure you typed in; this is the month-by-month picture behind it.';
+    }
+    el['months-intro'].textContent = intro;
+
+    var body = estimate.months.map(function (m) {
+      var classes = [];
+      if (soFarUsed && m.paid) classes.push('is-paid');
+      if (m.changed) classes.push('is-change');
+      var salaryCell = rand(m.salary) + (m.bonus > 0 ? '<span class="note">plus ' + rand(m.bonus) + ' bonus</span>' : '');
+      return '<tr class="' + classes.join(' ') + '">' +
+        '<td>' + month(form.taxYear, m.index, true) + (soFarUsed && m.paid ? ' <span class="paid-mark">paid</span>' : '') + '</td>' +
+        '<td>' + salaryCell + '</td>' +
+        '<td>' + rand(m.paye) + '</td>' +
+        '<td>' + rand(m.net) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var payeTotal = estimating ? estimate.total : estimate.modelledTotal;
+    var payeNote = soFarUsed
+      ? '<span class="note">' + rand(estimate.paidSoFar) + ' paid + ' + rand(estimate.estimatedRemaining) + ' estimated</span>'
+      : '';
+    var salaryTotal = sum(schedule.months) + form.bonus;
+
+    el['months-table'].innerHTML =
+      '<thead><tr><th>Month</th><th>Salary</th><th>PAYE</th><th>Net pay</th></tr></thead>' +
+      '<tbody>' + body + '</tbody>' +
+      '<tfoot><tr><td>Year</td><td>' + rand(salaryTotal) + '</td><td>' + rand(payeTotal) + payeNote + '</td>' +
+      '<td>' + rand(sum(estimate.months, function (m) { return m.net; })) + '</td></tr></tfoot>';
   }
 
   /* --- Loop --------------------------------------------------------------- */
@@ -361,32 +545,122 @@
     form.isExample = state ? state.isExample : false;
     state = form;
 
-    el['salary-label'].textContent = form.period === 'monthly' ? 'Monthly salary' : 'Annual salary';
+    if (form.taxYear !== renderedYear) syncMonthControls(form);
+
+    // Show and hide what the current answers make relevant.
+    el['salary-label'].textContent = (form.period === 'monthly' ? 'Monthly salary' : 'Annual salary') +
+      (form.salaryVaries ? ' from 1 March' : '');
     el['year-note'].textContent = T.YEARS[form.taxYear].note;
+    el['salary-changes'].hidden = !form.salaryVaries;
     el['medical-fields'].hidden = !form.onMedicalScheme;
+    var estimating = form.payeMode === 'estimate';
+    el['paye-irp5-fields'].hidden = estimating;
+    el['paye-estimate-fields'].hidden = !estimating;
+    el['bonus-month-field'].hidden = !(estimating && form.bonus > 0);
+    el['paye-label'].innerHTML = estimating
+      ? 'PAYE for the year <span class="tag">estimated</span>'
+      : 'PAYE deducted <span class="tag">IRP5 code 4102</span>';
+    el['paye-label'].setAttribute('for', estimating ? 'paye-so-far' : 'paye-paid');
 
-    var annual = toAnnual(form);
+    // The year's salary and what payroll will take from it.
+    var schedule = buildSchedule(form);
+    el['schedule-note'].textContent = form.salaryVaries ? scheduleNote(schedule, form.taxYear) : '';
+
+    var payrollInput = {
+      taxYear: form.taxYear,
+      ageBand: form.ageBand,
+      monthlySalary: schedule.months,
+      bonus: form.bonus,
+      bonusMonth: form.bonusMonth,
+      retirementMonthly: form.retirementFromPay ? form.retirement / 12 : 0,
+      medicalMembers: (form.onMedicalScheme && form.medicalThroughPayroll) ? form.medicalMembers : 0,
+      method: form.payeMethod,
+      paidSoFar: estimating ? form.payeSoFar : 0,
+      paidThroughMonth: estimating ? form.payeSoFarMonth : -1
+    };
+    var estimate = ZATax.estimatePaye(payrollInput);
+    var otherInput = {};
+    for (var k in payrollInput) otherInput[k] = payrollInput[k];
+    otherInput.method = form.payeMethod === 'annualised' ? 'cumulative' : 'annualised';
+    var otherEstimate = ZATax.estimatePaye(otherInput);
+
+    if (estimating) {
+      var diff = otherEstimate.total - estimate.total;
+      var soFar = estimate.paidThroughMonth >= 0;
+      el['paye-estimate-note'].textContent =
+        (soFar
+          ? rand(estimate.paidSoFar) + ' deducted to ' + month(form.taxYear, estimate.paidThroughMonth, true) +
+            ' plus ' + rand(estimate.estimatedRemaining) + ' estimated for ' +
+            (estimate.paidThroughMonth < 11 ? month(form.taxYear, estimate.paidThroughMonth + 1, false) + '–Feb' : 'nothing further') +
+            ': ' + rand(estimate.total) + ' for the year.'
+          : 'Estimated PAYE for the year: ' + rand(estimate.total) + '.') +
+        (Math.abs(diff) < 1
+          ? ' The same under either method.'
+          : ' ' + rand(Math.abs(diff)) + (diff > 0 ? ' more' : ' less') + ' if payroll uses the ' + otherEstimate.method + ' method instead.');
+    }
+
+    // The assessment itself works in annual rands.
+    var annual = {};
+    for (var j in form) annual[j] = form[j];
+    annual.salary = sum(schedule.months);
+    annual.payePaid = estimating ? estimate.total : form.payePaid;
     var r = ZATax.assess(annual, 0);
+    var lastMonth = estimate.months[11];
 
-    renderVerdict(r, form.isExample);
+    renderVerdict(r, form, estimate, otherEstimate, lastMonth);
     renderLadder(r);
-    renderDrop(state, annual);
-    renderStatement(r);
+    renderDrop(annual);
+    renderStatement(r, form, estimate, lastMonth);
+    renderMonths(form, estimate, schedule);
     save(state);
+  }
+
+  function addChange() {
+    var last = state.salaryChanges[state.salaryChanges.length - 1];
+    var lastRate = last ? last.amount : state.salary;
+    state.salaryChanges.push({ month: last ? Math.min(last.month + 1, 11) : 4, amount: lastRate });
+    renderChangeRows(state);
+    state.isExample = false;
+    update();
+    var added = document.getElementById('change-amount-' + (state.salaryChanges.length - 1));
+    if (added) { added.focus(); added.select(); }
   }
 
   function init() {
     populateYears();
-    var saved = load();
-    state = saved || EXAMPLE;
+    state = load() || withDefaults(EXAMPLE);
     writeForm(state);
     update();
+
+    // Enter in a field must never reload the page.
+    el['tax-form'].addEventListener('submit', function (e) { e.preventDefault(); });
 
     el['tax-form'].addEventListener('input', function (e) {
       if (e.target && e.target.id !== 'tax-year' && e.target.id !== 'age-band') state.isExample = false;
       update();
     });
-    el['tax-form'].addEventListener('change', function () { update(); });
+    el['tax-form'].addEventListener('change', function (e) {
+      if (e.target && e.target.id === 'salary-varies' && e.target.checked && readChanges().length === 0) {
+        state = readForm();
+        addChange();
+        return;
+      }
+      update();
+    });
+
+    el['add-change'].addEventListener('click', function () {
+      state = readForm();
+      addChange();
+    });
+    el['change-rows'].addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.change-remove') : null;
+      if (!btn) return;
+      state = readForm();
+      state.salaryChanges.splice(parseInt(btn.getAttribute('data-index'), 10), 1);
+      renderChangeRows(state);
+      state.isExample = false;
+      update();
+    });
 
     // Tidy the number up once the field loses focus, so R46500 reads R46 500.
     el['tax-form'].addEventListener('focusout', function (e) {
@@ -398,7 +672,7 @@
 
     el['reset-btn'].addEventListener('click', function () {
       try { localStorage.removeItem(STORE_KEY); } catch (err) { /* private mode */ }
-      state = JSON.parse(JSON.stringify(EXAMPLE));
+      state = withDefaults(EXAMPLE);
       writeForm(state);
       update();
     });

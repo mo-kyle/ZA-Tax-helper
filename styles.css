@@ -74,6 +74,10 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Author display rules on .field and .conditional would otherwise beat the
+   browser's own [hidden] { display: none }. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--ground);
@@ -627,4 +631,104 @@ input[type="text"]:focus-visible, select:focus-visible, .ghost-btn:focus-visible
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+/* --- Salary changes during the year -------------------------------------- */
+.change-rows { display: flex; flex-direction: column; gap: 8px; }
+.change-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.change-row .from {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.change-row select, .change-row input[type="text"] { padding-block: 7px; font-size: 13px; }
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-firm);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.icon-btn:hover { color: var(--warn); border-color: var(--warn); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.estimate-note { color: var(--ink-2); }
+
+/* --- Month by month -------------------------------------------------------- */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.months {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 460px;
+}
+.months th, .months td {
+  padding: 8px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.months th:first-child, .months td:first-child { text-align: left; }
+.months thead th {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--surface-sunk);
+}
+.months td {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.months td:first-child { font-family: var(--sans); color: var(--ink-2); }
+.months tr.is-paid td { color: var(--ink-3); }
+.months tr.is-paid td:first-child { color: var(--ink-3); }
+.months tr.is-change td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.months td .note {
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: normal;
+}
+.months tfoot td {
+  background: var(--surface-sunk);
+  font-weight: 600;
+  border-bottom: 0;
+}
+.months tfoot td:first-child { color: var(--ink); }
+.months .paid-mark {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
 }

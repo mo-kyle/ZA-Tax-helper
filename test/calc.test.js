@@ -11,6 +11,9 @@ function check(name, actual, expected, tol) {
 function checkTrue(name, actual) {
   if (actual) { pass++; } else { fail++; console.log('  FAIL ' + name + ': expected truthy, got ' + actual); }
 }
+function checkEq(name, actual, expected) {
+  if (actual === expected) { pass++; } else { fail++; console.log('  FAIL ' + name + ': got ' + actual + ', expected ' + expected); }
+}
 function section(s) { console.log('\n' + s); }
 
 function baseInput(over) {
@@ -177,6 +180,100 @@ check('11F limit follows remuneration', bonusCase.retirementLimit, 165000);
 var sideCase = ZATax.assess(baseInput({ salary: 500000, otherIncome: 100000 }));
 check('remuneration excludes other income', sideCase.remuneration, 500000);
 check('11F limit uses the greater of the two', sideCase.retirementLimit, 165000);
+
+section('Salary schedule');
+var flat = ZATax.salarySchedule(46500, []);
+check('flat schedule sums to twelve months', flat.reduce(function (a, b) { return a + b; }, 0), 46500 * 12);
+var raised = ZATax.salarySchedule(46500, [{ month: 4, amount: 52000 }]);
+check('June is still the old rate', raised[3], 46500);
+check('July takes the new rate', raised[4], 52000);
+check('February keeps it', raised[11], 52000);
+check('year total', raised.reduce(function (a, b) { return a + b; }, 0), 4 * 46500 + 8 * 52000);
+var twice = ZATax.salarySchedule(40000, [{ month: 10, amount: 50000 }, { month: 4, amount: 45000 }]);
+check('changes apply in month order however entered', twice[6], 45000);
+check('second change from January', twice[10], 50000);
+var started = ZATax.salarySchedule(0, [{ month: 6, amount: 30000 }]);
+check('a job that started in September', started.reduce(function (a, b) { return a + b; }, 0), 6 * 30000);
+checkEq('month labels carry the calendar year', ZATax.monthLabel('2027', 0, true), 'Mar 2026');
+checkEq('January belongs to the later calendar year', ZATax.monthLabel('2027', 10, true), 'Jan 2027');
+
+function payeInput(over) {
+  var i = { taxYear: '2027', ageBand: 'under65', monthlySalary: ZATax.salarySchedule(46500, []),
+    bonus: 0, bonusMonth: 9, retirementMonthly: 0, medicalMembers: 0, method: 'cumulative',
+    paidSoFar: 0, paidThroughMonth: -1 };
+  for (var k in (over || {})) i[k] = over[k];
+  return i;
+}
+var table27 = T.YEARS['2027'];
+
+section('PAYE on a flat salary is the same under both methods');
+var flatCum = ZATax.estimatePaye(payeInput());
+var flatAnn = ZATax.estimatePaye(payeInput({ method: 'annualised' }));
+var yearTax = ZATax.payrollAnnualTax(table27, 'under65', 46500 * 12, 0);
+check('cumulative total is the year\'s tax', flatCum.total, yearTax);
+check('annualised total is the year\'s tax', flatAnn.total, yearTax);
+check('every month is one twelfth', flatCum.months[5].paye, yearTax / 12);
+check('and matches the assessment', flatCum.total, ZATax.assess(baseInput({ salary: 46500 * 12 })).netTax);
+
+section('A raise in July that stays inside one bracket');
+// R46 500 to R52 000 sits in the 36% bracket either way. The table is a
+// straight line inside a bracket, so annualising each month gets the year
+// exactly right - no refund from the raise under either method.
+var sched = ZATax.salarySchedule(46500, [{ month: 4, amount: 52000 }]);
+var annualPay = 4 * 46500 + 8 * 52000;
+var raiseCum = ZATax.estimatePaye(payeInput({ monthlySalary: sched }));
+var raiseAnn = ZATax.estimatePaye(payeInput({ monthlySalary: sched, method: 'annualised' }));
+var exact = ZATax.payrollAnnualTax(table27, 'under65', annualPay, 0);
+check('cumulative lands on the exact year tax', raiseCum.total, exact);
+check('so does annualised when no bracket line is crossed', raiseAnn.total, exact);
+check('annualised months before the raise', raiseAnn.months[0].paye, ZATax.payrollAnnualTax(table27, 'under65', 46500 * 12, 0) / 12);
+check('annualised months after the raise', raiseAnn.months[11].paye, ZATax.payrollAnnualTax(table27, 'under65', 52000 * 12, 0) / 12);
+checkTrue('July is flagged as a change', raiseCum.months[4].changed === true && raiseCum.months[3].changed === false);
+
+section('A raise in July that crosses a bracket line');
+// R40 000 annualises to R480 000 (31% bracket); R48 000 to R576 000 (36%).
+// The year itself comes to R544 000. Annualising taxes eight months as if
+// R576 000 lasted all year, which over-deducts - the classic raise refund.
+var crossSched = ZATax.salarySchedule(40000, [{ month: 4, amount: 48000 }]);
+var crossPay = 4 * 40000 + 8 * 48000;
+var crossCum = ZATax.estimatePaye(payeInput({ monthlySalary: crossSched }));
+var crossAnn = ZATax.estimatePaye(payeInput({ monthlySalary: crossSched, method: 'annualised' }));
+var crossExact = ZATax.payrollAnnualTax(table27, 'under65', crossPay, 0);
+check('cumulative still lands on the exact year tax', crossCum.total, crossExact);
+check('annualised over-deducts by the convexity of the table', crossAnn.total - crossExact,
+  (4 * ZATax.payrollAnnualTax(table27, 'under65', 480000, 0) + 8 * ZATax.payrollAnnualTax(table27, 'under65', 576000, 0)) / 12 - crossExact);
+checkTrue('and that difference is real money', crossAnn.total - crossExact > 500);
+checkTrue('so an annualised payroll produces a refund from the raise alone',
+  ZATax.assess(baseInput({ salary: crossPay, payePaid: crossAnn.total })).balance > 500);
+check('while a cumulative one leaves nothing over',
+  ZATax.assess(baseInput({ salary: crossPay, payePaid: crossCum.total })).balance, 0);
+
+section('Bonus taxed in the month it is paid');
+var bonusAnn = ZATax.estimatePaye(payeInput({ bonus: 46500, bonusMonth: 9, method: 'annualised' }));
+var regular = ZATax.payrollAnnualTax(table27, 'under65', 46500 * 12, 0);
+check('December carries the bonus tax', bonusAnn.months[9].paye - bonusAnn.months[8].paye,
+  ZATax.payrollAnnualTax(table27, 'under65', 46500 * 12 + 46500, 0) - regular);
+var bonusCum = ZATax.estimatePaye(payeInput({ bonus: 46500, bonusMonth: 2 }));
+check('cumulative still lands on the year tax with a bonus', bonusCum.total,
+  ZATax.payrollAnnualTax(table27, 'under65', 46500 * 12 + 46500, 0));
+check('and matches the assessment', bonusCum.total, ZATax.assess(baseInput({ salary: 46500 * 12, bonus: 46500 })).netTax);
+
+section('Deducted so far replaces the modelled months');
+var partial = ZATax.estimatePaye(payeInput({ monthlySalary: sched, paidSoFar: 50000, paidThroughMonth: 5 }));
+var remaining = 0;
+partial.months.forEach(function (x) { if (x.index > 5) remaining += x.paye; });
+check('months to August count as paid', partial.months[5].paid ? 1 : 0, 1);
+check('September onwards is estimated', partial.months[6].paid ? 1 : 0, 0);
+check('total is what was paid plus the rest', partial.total, 50000 + remaining);
+
+section('Payroll applies what it knows about');
+var medPayroll = ZATax.estimatePaye(payeInput({ medicalMembers: 2 }));
+check('medical credit through payroll lowers PAYE', flatCum.total - medPayroll.total, 376 * 2 * 12);
+var raPayroll = ZATax.estimatePaye(payeInput({ retirementMonthly: 2750 }));
+check('pension off the payslip lowers PAYE', raPayroll.total,
+  ZATax.payrollAnnualTax(table27, 'under65', (46500 - 2750) * 12, 0));
+check('net pay is salary less PAYE, UIF and the pension', raPayroll.months[0].net,
+  46500 - raPayroll.months[0].paye - 177.12 - 2750);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

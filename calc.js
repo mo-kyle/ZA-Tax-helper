@@ -150,10 +150,6 @@
     var belowThreshold = taxableIncome <= threshold;
 
     var uifMonthly = Math.min(remuneration / 12, T.UIF.monthlyCeiling) * T.UIF.rate;
-    var ownRetirementMonthly = input.retirementFromPay ? (retirementPaid / 12) : 0;
-    var netPayMonthly = clampPositive(
-      remuneration / 12 - netTax / 12 - uifMonthly - ownRetirementMonthly
-    );
 
     return {
       table: table,
@@ -186,8 +182,7 @@
       threshold: threshold,
       belowThreshold: belowThreshold,
       effectiveRate: incomeBeforeDeductions > 0 ? netTax / incomeBeforeDeductions : 0,
-      uifMonthly: uifMonthly,
-      netPayMonthly: netPayMonthly
+      uifMonthly: uifMonthly
     };
   }
 
@@ -299,8 +294,143 @@
     return result;
   }
 
+  /* The year of assessment runs March to February. */
+  var MONTHS = ['Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
+
+  function monthLabel(taxYear, index, withYear) {
+    var y = Number(taxYear);
+    var calendar = index >= 10 ? y : y - 1;
+    return MONTHS[index] + (withYear ? ' ' + calendar : '');
+  }
+
+  /*
+   * Twelve monthly salary figures from the rate on 1 March and any changes
+   * during the year. A change applies from its month until the next one.
+   * Starting at zero models a job that began part-way through the year.
+   */
+  function salarySchedule(startMonthly, changes) {
+    var sorted = (changes || [])
+      .filter(function (ch) { return ch && ch.month >= 0 && ch.month < 12; })
+      .slice()
+      .sort(function (a, b) { return a.month - b.month; });
+    var months = [];
+    var rate = clampPositive(startMonthly);
+    var next = 0;
+    for (var m = 0; m < 12; m++) {
+      while (next < sorted.length && sorted[next].month <= m) {
+        rate = clampPositive(sorted[next].amount);
+        next++;
+      }
+      months.push(rate);
+    }
+    return months;
+  }
+
+  /* Tax as payroll sees it: the table, the rebates and the flat medical credit. */
+  function payrollAnnualTax(table, ageBand, annualIncome, medicalMembers) {
+    return clampPositive(
+      taxPerTables(table.brackets, clampPositive(annualIncome))
+      - rebatesFor(table, ageBand)
+      - medicalSchemeCredit(table, medicalMembers)
+    );
+  }
+
+  /*
+   * What payroll will deduct, month by month.
+   *
+   * Employers may use either of two SARS-sanctioned methods, and they give
+   * different answers when pay changes during the year:
+   *
+   *   cumulative  - averages the year to date and projects it forward, so the
+   *                 total deducted lands on the year's tax by February. A raise
+   *                 produces no refund on its own.
+   *   annualised  - treats each month as if it were repeated all year. Because
+   *                 the tables are progressive, months before a raise are taxed
+   *                 as if the lower salary lasted all year and months after as
+   *                 if the higher one did - which over-deducts a little, and is
+   *                 where the "I got a raise, I got a refund" experience comes from.
+   *
+   * Months up to and including `paidThroughMonth` are treated as already
+   * deducted, with `paidSoFar` standing in for their total.
+   */
+  function estimatePaye(opts) {
+    var table = T.YEARS[opts.taxYear] || T.YEARS[T.DEFAULT_YEAR];
+    var salaries = opts.monthlySalary || [];
+    var bonus = clampPositive(opts.bonus);
+    var bonusMonth = (opts.bonusMonth >= 0 && opts.bonusMonth < 12) ? opts.bonusMonth : 9;
+    var raMonthly = clampPositive(opts.retirementMonthly);
+    var members = clampPositive(opts.medicalMembers);
+    var cumulative = opts.method !== 'annualised';
+    var paidThrough = (typeof opts.paidThroughMonth === 'number' && opts.paidThroughMonth >= 0)
+      ? Math.min(opts.paidThroughMonth, 11) : -1;
+    var paidSoFar = clampPositive(opts.paidSoFar);
+    var age = opts.ageBand;
+
+    var months = [];
+    var cumRemuneration = 0, cumBonus = 0, cumPaye = 0;
+
+    for (var m = 0; m < 12; m++) {
+      var salary = clampPositive(salaries[m] || 0);
+      var bon = m === bonusMonth ? bonus : 0;
+      // Payroll allows the retirement deduction against the month's pay,
+      // within the same 27.5% test and one twelfth of the rand cap.
+      var raDeductible = Math.min(raMonthly, T.RETIREMENT_RATE * (salary + bon), table.retirementCap / 12);
+      var remuneration = clampPositive(salary - raDeductible);
+      var paye;
+
+      if (cumulative) {
+        cumRemuneration += remuneration;
+        cumBonus += bon;
+        var projected = cumRemuneration * 12 / (m + 1);
+        var onRegular = payrollAnnualTax(table, age, projected, members) * (m + 1) / 12;
+        var onBonus = payrollAnnualTax(table, age, projected + cumBonus, members)
+          - payrollAnnualTax(table, age, projected, members);
+        var cumTax = onRegular + onBonus;
+        paye = cumTax - cumPaye;
+        cumPaye = cumTax;
+      } else {
+        var annualised = remuneration * 12;
+        paye = payrollAnnualTax(table, age, annualised, members) / 12
+          + payrollAnnualTax(table, age, annualised + bon, members)
+          - payrollAnnualTax(table, age, annualised, members);
+      }
+
+      var uif = Math.min(salary + bon, T.UIF.monthlyCeiling) * T.UIF.rate;
+      months.push({
+        index: m,
+        salary: salary,
+        bonus: bon,
+        retirement: raMonthly,
+        paye: paye,
+        uif: uif,
+        net: salary + bon - paye - uif - raMonthly,
+        paid: m <= paidThrough,
+        changed: m > 0 && salary !== clampPositive(salaries[m - 1] || 0)
+      });
+    }
+
+    var estimatedRemaining = 0, modelledPaid = 0;
+    months.forEach(function (x) { if (x.paid) modelledPaid += x.paye; else estimatedRemaining += x.paye; });
+
+    return {
+      months: months,
+      method: cumulative ? 'cumulative' : 'annualised',
+      paidSoFar: paidSoFar,
+      paidThroughMonth: paidThrough,
+      estimatedRemaining: estimatedRemaining,
+      modelledPaid: modelledPaid,
+      total: paidSoFar + estimatedRemaining,
+      modelledTotal: modelledPaid + estimatedRemaining
+    };
+  }
+
   return {
     tables: T,
+    MONTHS: MONTHS,
+    monthLabel: monthLabel,
+    salarySchedule: salarySchedule,
+    payrollAnnualTax: payrollAnnualTax,
+    estimatePaye: estimatePaye,
     assess: assess,
     bracketDrop: bracketDrop,
     sliceBreakdown: sliceBreakdown,

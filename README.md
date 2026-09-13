@@ -13,6 +13,9 @@ It answers three questions:
    that lands your taxable income under the bracket floor, whether your salary
    and the section 11F limit actually allow it, and what it saves you.
 
+It also handles a salary that changed, or will change, during the year, and
+can estimate the year's PAYE when there is no IRP5 yet.
+
 Everything you enter stays in your own browser (`localStorage`). Nothing is
 sent anywhere.
 
@@ -22,6 +25,37 @@ Salary, bonus and other taxable income; retirement fund contributions under
 section 11F; section 18A donations; the section 6A medical scheme fees credit
 and the section 6B additional medical expenses credit; age rebates; PAYE and
 provisional tax already paid; and employee UIF.
+
+### A salary that changes during the year
+
+Tick *My salary changed, or will change, during this tax year* and add each
+change with the month it takes effect. The year's income is then the sum of
+the twelve months rather than one figure times twelve. Starting at R0 and
+adding the first month as a change models a job that began part-way through
+the year.
+
+### Estimating PAYE
+
+If the year is still running you have no IRP5, so switch the PAYE field to
+*Estimate it*. Enter the tax-year-to-date PAYE off your latest payslip and the
+month it runs to; the remaining months are estimated from your salary
+schedule, the way payroll works them out. SARS allows employers two methods,
+and they differ when pay changes:
+
+- **Cumulative (averaging)** projects the year to date forward and corrects
+  itself by February, so the total lands on the year's tax. The big payroll
+  systems default to this. An increase produces no refund on its own.
+- **Annualised** treats each month as if it were repeated all year. Inside one
+  bracket that is exact; when an increase crosses a bracket line it
+  over-deducts, which is where the "got a raise, got a refund" experience
+  comes from.
+
+The page shows the estimate under both, so the refund reads as a range, and a
+month-by-month table of salary, PAYE and net pay you can check against
+payslips. Retirement contributions that come off the payslip and a medical
+scheme paid through payroll reduce the estimate, because payroll allows for
+them; a private retirement annuity or a scheme you pay yourself do not, and
+come back on assessment.
 
 ## What it does not cover
 
@@ -64,7 +98,9 @@ to cancel, which catches most transcription slips.
 node test/calc.test.js
 ```
 
-108 assertions covering the published tables, the threshold and bracket
-boundaries, medical credits, the section 11F cap, donation limits, and the
-bracket-drop solver — including the case where the annual cap makes a drop
-impossible no matter what you contribute.
+141 assertions covering the published tables, the threshold and bracket
+boundaries, medical credits, the section 11F cap, donation limits, the
+bracket-drop solver (including the case where the annual cap makes a drop
+impossible no matter what you contribute), the salary schedule, and the PAYE
+estimate under both payroll methods — including that a raise inside one
+bracket produces no refund and a raise across a bracket line does.
